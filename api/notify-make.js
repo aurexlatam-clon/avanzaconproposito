@@ -19,7 +19,11 @@ const ALLOWED_FIELDS = [
   'video_id',
   'landing_page_url',
   'event_type',
-  'video_max_progress'
+  'video_max_progress',
+  'pregunta1_situacion',
+  'pregunta2_freno',
+  'pregunta3_objetivo',
+  'pregunta4_inversion'
 ];
 
 const MAX_LEN = 300;
@@ -27,15 +31,17 @@ const MAX_LEN = 300;
 function sanitizeString(value) {
   if (typeof value === 'number' && Number.isFinite(value)) return String(value);
   if (typeof value !== 'string') return '';
+  // Quita caracteres de control y recorta longitud para evitar payloads abusivos.
   return value.replace(/[\x00-\x1F\x7F]/g, '').trim().slice(0, MAX_LEN);
 }
 
 function isValidEmail(value) {
-  if (!value) return true;
+  if (!value) return true; // el campo es opcional; si viene vacío, se acepta vacío
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
 function isValidLeadId(value) {
+  // Formato que genera nuestro propio snippet: lead_<base36>_<random>
   return /^[A-Za-z0-9_-]{5,80}$/.test(value);
 }
 
@@ -57,6 +63,7 @@ module.exports = async function handler(req, res) {
     return res.status(400).json({ ok: false, error: 'invalid_body' });
   }
 
+  // Solo aceptamos exactamente los campos declarados — cualquier otro se descarta.
   const clean = {};
   for (const field of ALLOWED_FIELDS) {
     clean[field] = sanitizeString(body[field]);
@@ -74,9 +81,11 @@ module.exports = async function handler(req, res) {
 
   if (!webhookUrl || !apiKey) {
     console.error('notify-make: faltan variables de entorno MAKE_WEBHOOK_URL / MAKE_API_KEY');
+    // No revelamos detalles del error al cliente.
     return res.status(500).json({ ok: false, error: 'server_not_configured' });
   }
 
+  // Tiempo de espera controlado: si Make no responde, no dejamos la función colgada.
   const controller = new AbortController();
   const timeout = setTimeout(function () { controller.abort(); }, 8000);
 
@@ -95,6 +104,8 @@ module.exports = async function handler(req, res) {
 
     if (!makeResponse.ok) {
       console.error('notify-make: respuesta no exitosa de Make', makeResponse.status);
+      // El registro YA está guardado en Firebase de forma independiente;
+      // un fallo aquí no lo afecta. Solo informamos que el aviso a Make falló.
       return res.status(502).json({ ok: false, error: 'make_upstream_error' });
     }
 
